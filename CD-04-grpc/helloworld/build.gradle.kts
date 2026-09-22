@@ -42,3 +42,22 @@ protobuf {
         }
     }
 }
+
+tasks.register<Jar>("fatJar") {
+    archiveClassifier.set("all")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    dependsOn("classes")
+
+    manifest {
+        attributes["Main-Class"] = "com.example.GrpcServer"
+    }
+
+    from(sourceSets.main.get().output)
+    from({
+        configurations.runtimeClasspath.get()
+            .filter { it.name.endsWith("jar") }
+            .map { zipTree(it) }
+    })
+
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+}
