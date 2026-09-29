@@ -12,7 +12,7 @@ group = "isel.grpc"
 version = "1.0"
 
 val grpcVersion = "1.84.0"
-val protocVersion = "4.36.2"//"3.25.3"
+val protocVersion = "3.25.9"
 
 repositories {
     mavenCentral()
