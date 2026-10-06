@@ -371,10 +371,9 @@ O Anexo 3 define os seguintes resultados:
 | `ciclo.py`   | ciclo infinito        | `TIMEOUT`   |       124 |
 | `memoria.py` | excede a memória      | `ERRO`      |       137 |
 
-### `soma.py`
+Crie os seguintes ficheiros python e analise o resultado da execução de cada um.
 
-O PDF descreve o comportamento, mas não apresenta o código. Para o
-laboratório:
+### `soma.py`
 
 ``` python
 import sys
