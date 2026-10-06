@@ -17,7 +17,7 @@ java {
 }
 
 dependencies {
-    implementation("redis.clients:jedis:6.2.0")
+    implementation("redis.clients:jedis:7.2.0")
     implementation("com.github.docker-java:docker-java-core:3.4.0")
     implementation("com.github.docker-java:docker-java-transport-httpclient5:3.4.0")
 }
