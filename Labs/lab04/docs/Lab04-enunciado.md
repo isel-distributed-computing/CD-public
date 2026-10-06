@@ -1,4 +1,4 @@
-# Computação Distribuída --- Laboratório 04 --- de Preparação do TPA1: CodeRunner
+# Computação Distribuída --- Laboratório 04 --- Preparação do TPA1: CodeRunner
 
 ## 1. Objetivos
 
