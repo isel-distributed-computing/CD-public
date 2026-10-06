@@ -586,11 +586,6 @@ RunServer
 Porque deve o UUID ser devolvido ao cliente antes de a execução
 terminar?
 
-### Questão 14
-
-Porque pode um `RunServer` responder sobre um pedido executado por
-outro?
-
 ------------------------------------------------------------------------
 
 # Parte VIII --- Cleanup e checklist
@@ -707,12 +702,6 @@ execução deve prosseguir noutra thread.
 A submissão é assíncrona: o pedido é registado como `PENDENTE`, o
 cliente recebe o identificador e poderá consultar posteriormente o
 resultado.
-
-## 14. Qualquer RunServer pode responder
-
-O estado não fica apenas no servidor que executou o programa. É guardado
-no Redis partilhado, pelo que qualquer `RunServer` pode consultar
-`pedido:<id>`.
 
 ------------------------------------------------------------------------
 
