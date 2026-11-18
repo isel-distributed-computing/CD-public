@@ -68,6 +68,7 @@ flowchart LR
     G -- "shared files (/data)" --> WK
 ```
 
+<!--
 Para minimizar o números de VM necessárias a versão final do sistema corre em 3 VM. Cada VM tem todos os papéis: uma réplica do agendador (com o daemon Spread), um ou mais workers e um brick do volume GlusterFS. O RabbitMQ corre numa das VM. Os bricks são réplicas uns dos outros e todas as VMs montam o mesmo volume em `/data`. O diagrama seguinte detalha essas VMs:
 
 ```mermaid
@@ -96,7 +97,7 @@ flowchart TB
 ```
 
 Todos os componentes (agendadores, workers, RabbitMQ, Spread, Gluster) correm como processos no sistema operativo das VMs. Apenas a execução das tarefas é feita em contentores, lançados pelos workers.
-
+-->
 
 ### 2.1. Componentes
 
