@@ -227,7 +227,7 @@ Lance vários membros ligados ao daemon e use o menu da aplicação para verific
 8. Altere a aplicação para que os membros do grupo `counter` mantenham, cada um, uma cópia de um contador inteiro, inicialmente a 0, e fiquem sempre com o mesmo valor:
    - acrescente ao menu as opções *Somar* e *Multiplicar*, que pedem um inteiro `n` e enviam ao grupo a mensagem `ADD n` ou `MUL n`, e a opção *Mostrar*, que escreve o valor local do contador;
    - o membro que envia **não altera o contador** ao enviar: todos os membros, incluindo o que enviou, aplicam a operação quando recebem a mensagem do grupo (em `MessageHandling`);
-   - as mensagens são enviadas com `setAgreed()`, para que todos as recebam pela mesma ordem.
+   - as mensagens são enviadas com `setSafe()`, para que todos as recebam pela mesma ordem.
 
    Teste com três membros: envie, a partir de dois membros ao mesmo tempo, operações `ADD` e `MUL` e confirme com *Mostrar* que os três ficam com o mesmo valor. Como somar e multiplicar não comutam (`(0 + 2) × 3 ≠ 0 × 3 + 2`), os valores só coincidem porque as operações são aplicadas pela mesma ordem em todos os membros.
 
