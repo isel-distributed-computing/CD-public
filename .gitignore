@@ -51,6 +51,8 @@ buildNumber.properties
 build/
 # Manter o wrapper do Gradle
 !gradle/wrapper/gradle-wrapper.jar
+# Manter a biblioteca Spread do lab07 (libs/spread-5.0.1.jar)
+!Labs/lab07-spread/DemoSpread-Gradle/libs/*.jar
 
 # ===== gRPC / Protobuf (código gerado) =====
 # Em Maven/Gradle o código gerado fica em target/ ou build/ (já ignorados).
