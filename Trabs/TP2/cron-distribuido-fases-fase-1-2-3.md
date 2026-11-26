@@ -332,6 +332,99 @@ Uma tarefa que falha (código de saída diferente de 0) não é repetida e por i
 
 ---
 
-## 5. Fases 3 e 4
+## 5. Fase 3: Eleição do líder com Spread
 
-O detalhe das fases 3 (eleição de líder com Spread) e 4 (GlusterFS) será publicado posteriormente, numa nova versão deste enunciado.
+### 5.1. Alterações ao sistema da fase 2
+
+O objetivo nesta fase é eliminar o ponto único de falha. O agendador passa a ter 3 réplicas, num grupo Spread, mas ainda a executar na mesma máquina. Qualquer réplica aceita pedidos gRPC, mas apenas o líder dispara as tarefas e consome a fila `results`. Quando o líder falha, outra réplica assume esse papel, sem perda de ocorrências.
+
+**O registo de tarefas não precisa de líder.** Qualquer réplica pode receber o pedido gRPC e difundi-lo ao grupo Spread com ordem total. Todas as réplicas aplicam as alterações pela mesma ordem e ficam com o mesmo estado. Para que duas réplicas que recebem pedidos ao mesmo tempo não atribuam o mesmo identificador a tarefas diferentes, o id da tarefa é formado pelo nome da réplica que recebeu o pedido e por um contador local dessa réplica (ex.: `s2-7`). É único sem qualquer coordenação, porque não há duas réplicas com o mesmo nome.
+
+**O disparo precisa de líder.** O disparo periódico de tarefas não é provocado por uma mensagem, mas pela passagem do tempo. Assim, só o líder consulta o seu relógio e dispara as tarefas de acordo com o algoritmo da secção [2.3. Agendamento](#23-agendamento).
+
+**O pedido de TriggerNow pode ser enviado a qualquer réplica.** Ao contrário do disparo periódico, é provocado por uma mensagem (o pedido gRPC), que pode chegar a qualquer réplica. A réplica que o recebe fixa o `scheduledTime` com o instante do pedido, difunde `TRIGGER(taskId, scheduledTime)` ao grupo e devolve o `execId` ao cliente. Só o líder publica o job: ao receber o `TRIGGER`, publica-o e difunde `DISPATCHED`, como num disparo periódico. Para simplificar, aceita-se que um `TriggerNow` se perca se o líder falhar nesse instante.
+
+### 5.2. Eleição com Spread
+
+Não é preciso implementar um algoritmo de eleição explícito:
+
+1. Todas as réplicas juntam-se ao grupo `sched`.
+2. O Spread entrega a todos os membros a mesma vista de membership, pela mesma ordem relativamente às mensagens.
+3. Cada réplica aplica uma regra determinística, por exemplo: **o líder é o membro com o nome mais baixo na vista**.
+4. Quando o líder falha, chega uma nova vista e todos concluem, sem trocar mensagens, quem é o novo líder.
+
+Regra do quórum: só há líder se a vista atual contiver a maioria das réplicas configuradas, isto é, pelo menos 2 das 3. Sem maioria, nenhuma réplica dispara tarefas nem consome a fila `results`.
+
+### 5.3. Fluxo de um disparo com líder
+
+1. A cada tick, o líder determina que tarefas estão em atraso.
+2. Para cada ocorrência em atraso, gera `execId = taskId-scheduledTime` (determinístico, como na secção [2.3. Agendamento](#23-agendamento)).
+3. O líder publica o job em `jobs.<tipo>` e só depois difunde `DISPATCHED(execId)` ao grupo Spread.
+4. Um worker consome o job e executa-o (fase 2).
+5. O líder consome a fila `results`, difunde o estado final ao grupo e só depois faz ack da mensagem.
+
+```mermaid
+sequenceDiagram
+    participant L as Líder
+    participant G as Grupo Spread sched
+    participant R as RabbitMQ
+    participant W as Worker
+    participant FS as Armazenamento
+    L->>R: publica job
+    L->>G: DISPATCHED(execId)
+    R->>W: job
+    W->>FS: escreve resultado em results/taskId/scheduledTime/
+    W->>R: publica estado no exchange results
+    W->>R: ack do job
+    R->>L: results
+    L->>G: estado final (DONE ou FAILED)
+    L->>R: ack
+```
+
+A ordem destes passos é o que garante que nenhuma ocorrência se perde quando o líder falha a meio de um disparo:
+
+- **Publicar antes de difundir `DISPATCHED`:** se o líder falhar depois de publicar o job e antes de difundir `DISPATCHED`, o `k` da tarefa não avançou em nenhuma réplica. O novo líder volta a disparar a mesma ocorrência, com o mesmo `execId`, e o job é executado duas vezes, o que é aceitável porque a segunda execução reescreve a mesma diretoria de resultado (ver [4.2](#42-execução-de-um-job-no-worker)). Na fosse realizado na ordem inversa, o `k` avançava sem o job ter sido publicado, e a ocorrência perdia-se.
+- **Ack de `results` só depois de difundir:** se o líder falhar depois de receber um estado e antes de o difundir, a mensagem, sem ack, volta à fila `results` e é consumida pelo novo líder. Se o ack fosse feito antes, o estado final perdia-se e a execução ficava para sempre em `DISPATCHED`.
+
+### 5.4. Estado das réplicas
+
+O estado do agendador (tarefas registadas, próxima ocorrência de cada tarefa e histórico de execuções) é mantido **apenas em memória**, em cada réplica, e não é persistido em disco. As réplicas mantêm-no igual através do Spread, como uma máquina de estados replicada: todas as alterações são difundidas ao grupo com ordem total, e cada réplica aplica-as pela mesma ordem.
+
+Em cada réplica, o estado é formado por:
+
+- **Tarefas:** para cada tarefa, a definição (`id`, `type`, `interval_seconds`, `input_dir`), o instante de registo `t0` e o índice `k` da próxima ocorrência a disparar (ver [2.3. Agendamento](#23-agendamento)).
+- **Execuções:** para cada `execId`, a tarefa, o `scheduledTime`, o estado (`DISPATCHED`, `DONE` ou `FAILED`) e, no fim, o `result_path` ou a mensagem de erro.
+
+As mensagens difundidas ao grupo, e o efeito de cada uma no estado, são:
+
+| Mensagem difundida                | Quem a difunde                  | Efeito no estado                                                                                                                                                                                                    |
+| --------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REGISTER(task, t0)`              | A réplica que recebe o pedido   | Acrescenta a tarefa, com o id e o `t0` fixados pela réplica que recebeu o pedido e `k = 1`                                                                                                                          |
+| `TRIGGER(taskId, scheduledTime)`  | A réplica que recebe o pedido   | Nenhum nas outras réplicas; o líder, ao recebê-la, publica o job e difunde `DISPATCHED`                                                                                                                             |
+| `DISPATCHED(execId)`              | O líder                         | Acrescenta a execução no estado `DISPATCHED`. Se for a ocorrência periódica `k` da tarefa, incrementa o `k` (`k ← k + 1`): a próxima ocorrência a disparar passa a ser a seguinte. Num `TriggerNow`, o `k` não muda |
+| `DONE(execId)` / `FAILED(execId)` | O líder (ao consumir `results`) | Muda o estado da execução para `DONE` (com o `result_path`) ou `FAILED` (com a mensagem de erro)                                                                                                                    |
+
+Assim, quando o líder falha, o novo líder já tem o estado atualizado e retoma o disparo a partir dele. Uma réplica que entra no grupo recebe o estado completo de um membro atual (*state transfer*) antes de começar a responder a pedidos.
+
+Como o estado só existe em memória, perde-se se todas as réplicas falharem ao mesmo tempo. Admite-se no contexto deste trabalho que isso não acontece.
+
+### 5.5. Requisitos base
+
+- 3 réplicas do agendador no grupo Spread, o qual é usado para membership e eleição pela regra determinística.
+- Só o líder dispara e consome a fila `results`; uma réplica que deixa de ser líder deixa de disparar e cancela o seu consumidor de `results`.
+- O líder só faz ack de uma mensagem de `results` depois de difundir o estado ao grupo.
+- O líder publica o job e só depois difunde `DISPATCHED(execId)` ao grupo.
+- Regra do quórum: só há líder se a vista atual tiver maioria, ou seja, 2 ou mais réplicas das 3 definidas no sistema.
+- *State transfer*: uma réplica que entra no grupo recebe de um membro atual o estado completo antes de começar a responder a pedidos.
+- Na mudança de líder, o novo líder retoma o disparo a partir do estado replicado que já tem em memória: dispara todas as ocorrências em atraso, com o `scheduledTime` original.
+
+### 5.6. Demonstração (checkpoint)
+
+- **Falha do líder antes de um disparo:** terminar o líder segundos antes de uma ocorrência e mostrar que a tarefa é disparada, com atraso, pelo novo líder.
+- **Entrada de um novo elemento no grupo:** com o sistema já em funcionamento, com tarefas registadas e execuções no histórico, arrancar uma nova réplica e mostrar que, ao entrar no grupo, recebe o estado atual (ex.: com `ListTasks` e `ListExecutions` dirigidos a essa réplica).
+
+---
+
+## 6. Fase 4
+
+O detalhe da fase 4 (GlusterFS) será publicado posteriormente, numa nova versão deste enunciado.
